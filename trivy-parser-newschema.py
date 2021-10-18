@@ -36,7 +36,7 @@ def indexer(package_list):
     for package in package_list:
         v = 0
         for vulnerability in package["Vulnerabilities"]:
-            if vulnerability["Severity"] == "HIGH" or vulnerability["Severity"] == "CRITICAL":
+            if vulnerability["Severity"] == "INFO" or vulnerability["Severity"] == "LOW" or vulnerability["Severity"] == "MEDIUM" or vulnerability["Severity"] == "HIGH" or vulnerability["Severity"] == "CRITICAL":
                 index_list.append((p,v))
             v += 1
         p += 1
@@ -70,37 +70,61 @@ def merger(qualified_packages):
 # Export remediation from available packages
 def remediation(finalized_packages):
     availabe_list = []
+    avail_for_remedy = []
     not_available = []
     pklist = []
     for package in finalized_packages.values():
         for vulnerability in package["Vulnerabilities"]: 
             PkgName = package["Vulnerabilities"][vulnerability]["PkgName"]
+            # title = package["Vulnerabilities"][vulnerability]["Title"]
             cve = package["Vulnerabilities"][vulnerability]["VulnerabilityID"]
+            severity = package["Vulnerabilities"][vulnerability]["Severity"]
+            cvss = package["Vulnerabilities"][vulnerability]["CVSS"]
+            reference = package["Vulnerabilities"][vulnerability]["References"]
             if "FixedVersion" in package["Vulnerabilities"][vulnerability]:
                 InstalledVersion = package["Vulnerabilities"][vulnerability]["InstalledVersion"]
                 FixedVersion = package["Vulnerabilities"][vulnerability]["FixedVersion"]
-
-                availabe_list.append(f'Update {PkgName} From {InstalledVersion} ----> {FixedVersion}')
+                PackageVulns = {cve:{'Fixed Version':FixedVersion,'Severity':severity, 'CVSS':cvss, 'Reference':reference}}
+                availabe_list.append({'Package Name':PkgName,'Installed Version': InstalledVersion,'Vulnerabilities':PackageVulns})
                 pklist.append(PkgName)
+                avail_for_remedy.append(f'Update {PkgName} From {InstalledVersion} ----> {FixedVersion}')
             else:
                 not_available.append(f'{PkgName} ----> {cve}')
-                pklist.append(PkgName)
-
-    availabe_list = set(availabe_list)
-    availabe_list = list(availabe_list)
-
-    # Save Update List
-    save_json(availabe_list,"update_list.json")
+                pklist.append(PkgName)  
 
     not_available = set(not_available)
     not_available = list(not_available)
 
+    avail_for_remedy = set(avail_for_remedy)
+    avail_for_remedy = list(avail_for_remedy)
+
     pklist = set(pklist)
     pklist = list(pklist)
 
+    remediation_dict = {"Update Needed":avail_for_remedy,"No Remediation":not_available,"Vulnearble Packages":pklist}
 
-    remediation_dict = {"Update Needed":availabe_list,"No Remediation":not_available,"Vulnearble Packages":pklist}
-    return remediation_dict
+    return (availabe_list, remediation_dict)
+
+# Merge Same Name Packages
+def deepmerger(availabe_list):
+    update_dict = {}
+
+    for item in availabe_list:
+        update_dict.update({item["Package Name"]:{'Installed Version': item["Installed Version"],'Vulnerabilities':item["Vulnerabilities"]}})
+        
+    for item in availabe_list:
+        for pkg,values in update_dict.items():
+            if item["Package Name"] == pkg:
+                values["Vulnerabilities"].update(item["Vulnerabilities"])
+    for pkg,values in update_dict.items():
+        version_list = []
+        for itm,vuln in values["Vulnerabilities"].items():
+            version_list.append(vuln["Fixed Version"])
+        version_list = set(version_list)
+        version_list = list(version_list)
+        update_dict[pkg]["Update to latest listed here"] = version_list
+
+    return update_dict
 
 
 # Main script
@@ -118,9 +142,14 @@ def main():
     # Save vulnerable packages
     save_json(finalized_packages,'vulnerable_packages.json')
     # Find available remediations
-    remediation_dict = remediation(finalized_packages)
+    availabe_list, remediation_dict = remediation(finalized_packages)
     # Save Remediations
     save_json(remediation_dict,'remediations.json')
+    # Merge Same Name Packages
+    update_dict = deepmerger(availabe_list)
+    # Save Update List
+    save_json(update_dict,"update_list.json")
+
 
 
 
